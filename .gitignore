@@ -7,8 +7,13 @@ env/
 .ipynb_checkpoints/
 *.ipynb_checkpoints
 
-# Artefatos gerados (pkl podem ser grandes — regenere rodando os notebooks)
+# Artefatos gerados (pkl/npy podem ser grandes — regenere rodando os notebooks)
 saida/*.pkl
+data/*.npy
+data/raw/
+
+# Crash dumps
+*.stackdump
 
 # Cache Python
 __pycache__/
