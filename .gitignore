@@ -15,6 +15,9 @@ data/raw/
 # Crash dumps
 *.stackdump
 
+# Logs de treino do CatBoost
+catboost_info/
+
 # Cache Python
 __pycache__/
 *.py[cod]

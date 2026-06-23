@@ -191,35 +191,42 @@ o requisito de utilização em mais de uma base de dados.
 
 ## Arquitetura do Sistema Híbrido
 
-O sistema implementa **Stacking** (meta-aprendizado), uma das três estratégias de
-ensemble definidas em Lorenzato (RecPad Aula 09) e formalizada por Wolpert (1992).
+O sistema implementa **duas** das três estratégias de ensemble definidas em
+Lorenzato (RecPad Aula 09): **Meta-learning** (Stacking, formalizado por Wolpert 1992)
+e **Fusão** (Voto Suave Ponderado). Ambos operam sobre **o mesmo subconjunto de
+base-learners**, selecionado dinamicamente pelo teste de Nemenyi (Seção 8.1), o que
+permite uma comparação direta Meta-learning × Fusão.
 
 ```
-════════════════════════ NÍVEL 0 — Classificadores Base ════════════════════════
+════════════ SELEÇÃO DINÂMICA (Seção 8.1, pós-Nemenyi) ════════════
+  10 baselines avaliados → Friedman + Nemenyi → subconjunto de base-learners
+  (mantém diversidade de representação, descarta redundância da mesma família)
+                                │
+                                ▼  (mesma lista alimenta os dois ensembles)
+════════════════ NÍVEL 0 — Classificadores Base selecionados ════════════════
 
   Entrada: texto bruto do bug/CVE
       │
-      ├─► [TF-IDF sublinear, 20k features]─► LogReg (C=busca)  ─► P(Alta) P(Méd) P(Bx) ──┐
-      │                                                                 cols 0–2             │
-      │                                                                                      │
-      └─► [Qwen3-0.6B Embedding, 1024 dim] ─► RF (300 árvores)  ─► P(Alta) P(Méd) P(Bx) ──┤
-                                           ├─► XGBoost (busca)  ─► P(Alta) P(Méd) P(Bx) ──┤
-                                           └─► LightGBM (busca) ─► P(Alta) P(Méd) P(Bx) ──┤
-                                                                       cols 3–11             │
-                                                                                             │
-════════════════════════ NÍVEL 1 — Meta-Classificador ═══════════════════════════           │
-                                                                                             │
-  Meta-features: 12 colunas ◄──────────────────────────────────────────────────────────────┘
-     └─ TF-IDF (cols 0–2) + Embeddings (cols 3–11)
-          │
-          ▼
-     LogReg meta (C=0.1)  ──►  classe final: Alta / Média / Baixa
+      ├─► [TF-IDF sublinear, 20k features] ─► base-learners 'text'  ─► P(Alta) P(Méd) P(Bx) ──┐
+      │                                                                                          │
+      └─► [Qwen3-0.6B Embedding, 1024 dim] ─► base-learners 'emb'   ─► P(Alta) P(Méd) P(Bx) ──┤
+                                                                                                 │
+       (k base-learners selecionados → 3·k meta-features / probabilidades)                       │
+                                                                                                 │
+══════════ NÍVEL 1 — Combinação (duas estratégias comparadas) ════════════════                   │
+                                                                                                 │
+  Meta-features: 3·k colunas ◄──────────────────────────────────────────────────────────────────┘
+     │
+     ├─► [Meta-learning] LogReg meta (C=0.1) treinado nas predições OOF   ─► classe final
+     │
+     └─► [Fusão]         P_final = Σ wᵢ·Pᵢ , wᵢ = F1ᵢ / Σ F1ⱼ (argmax)     ─► classe final
 ```
 
 **Onde acontece a hibridização:**  
-As 12 meta-features combinam saídas de **duas representações fundamentalmente distintas**:
-- Colunas 0–2: frequência de termos (esparso, ~20k dimensões, linear)
-- Colunas 3–11: semântica densa (1024 dimensões, não-linear)
+As `3·k` meta-features combinam saídas de **duas representações fundamentalmente distintas**
+(quando a seleção inclui modelos das duas famílias):
+- blocos de modelos TF-IDF: frequência de termos (esparso, ~20k dimensões, linear)
+- blocos de modelos Embeddings: semântica densa (1024 dimensões, não-linear)
 
 O meta-classificador aprende automaticamente o peso ideal de cada fonte por classe,
 equivalente ao "Módulo de Combinação" no diagrama de Sistemas Inteligentes Híbridos
@@ -234,17 +241,37 @@ os dados de base.
 
 ## Baselines Comparados
 
-| # | Modelo | Representação | Biblioteca | Referência |
-|---|---|---|---|---|
-| 1 | Complement Naive Bayes | TF-IDF | `sklearn` | Lamkanfi (2010) |
-| 2 | Regressão Logística | TF-IDF | `sklearn` | Lamkanfi (2010) |
-| 3 | SVM Linear (calibrado) | TF-IDF | `sklearn` | Lamkanfi (2010) |
-| 4 | Random Forest | Embeddings | `sklearn` | Breiman (2001) |
-| 5 | **XGBoost** | Embeddings | **`xgboost`** | Chen & Guestrin (2016) |
-| 6 | **LightGBM** | Embeddings | **`lightgbm`** | Ke et al. (2017) |
+| #  | Modelo | Representação | Biblioteca | Referência |
+|----|---|---|---|---|
+| 1  | Complement Naive Bayes | TF-IDF | `sklearn` | Lamkanfi (2010) |
+| 2  | Regressão Logística | TF-IDF | `sklearn` | Lamkanfi (2010) |
+| 3  | SVM Linear (calibrado) | TF-IDF | `sklearn` | Lamkanfi (2010) |
+| 4  | Decision Tree | TF-IDF | `sklearn` | Lamkanfi (2010) |
+| 5  | Random Forest | Embeddings | `sklearn` | Breiman (2001) |
+| 6  | k-NN | Embeddings | `sklearn` | Lamkanfi (2010) |
+| 7  | **XGBoost** | Embeddings | **`xgboost`** | Chen & Guestrin (2016) |
+| 8  | **LightGBM** | Embeddings | **`lightgbm`** | Ke et al. (2017) |
+| 9  | **CatBoost** | Embeddings | **`catboost`** | Prokhorenkova et al. (2018) |
+| 10 | MLP (rede neural rasa) | Embeddings | `sklearn` | Umer et al. (2019) |
 
-> Cumpre o requisito: **não é permitido usar apenas sklearn** — XGBoost e LightGBM
-> são bibliotecas externas independentes; SentenceTransformer (embeddings) também.
+> Cumpre o requisito: **não é permitido usar apenas sklearn** — XGBoost, LightGBM e
+> CatBoost são bibliotecas externas independentes; SentenceTransformer (embeddings) também.
+
+**Justificativa das adições (segunda rodada):**
+- **Decision Tree** e **k-NN** completam os quatro classificadores originais de
+  Lamkanfi et al. (2010) (que usava NB, SVM, Decision Tree e k-NN), tornando a
+  replicação do baseline clássico fiel ao trabalho de referência.
+- **CatBoost** (Prokhorenkova et al., 2018) entra como terceiro algoritmo de
+  *gradient boosting* externo, ao lado de XGBoost e LightGBM, ampliando a diversidade
+  de boosting sobre a representação semântica.
+- **MLP sobre embeddings** é o análogo de classificador único neural ao híbrido
+  CNN+RF de Umer et al. (2019): como substituímos o CNN por embeddings congelados do
+  Qwen3 (ver seção *Motivação*), uma rede neural rasa (MLP) sobre esses embeddings é
+  a contraparte natural de "classificador neural isolado" para fins de comparação.
+
+> Com 10 baselines, a composição dos ensembles (Stacking e Voto Ponderado) **não é mais
+> fixada a priori**: ela é **selecionada dinamicamente** a partir do teste de Nemenyi
+> (Seção 8.1 do notebook). Ver [Processo de Seleção de Modelos](#processo-de-seleção-de-modelos).
 
 ---
 
@@ -253,28 +280,33 @@ os dados de base.
 A especificação do processo de seleção segue três etapas encadeadas:
 
 ### Etapa 1 — Justificativa a priori (antes do experimento)
-Os 6 baselines foram escolhidos para cobrir o espaço de modelos relevantes na literatura:
-- NB, LogReg, SVM: replicam os baselines de Lamkanfi (2010)
-- RF, XGBoost, LightGBM: extensão moderna sobre representação semântica
+Os 10 baselines foram escolhidos para cobrir o espaço de modelos relevantes na literatura:
+- NB, LogReg, SVM, Decision Tree, k-NN: replicam os baselines de Lamkanfi (2010)
+- RF, XGBoost, LightGBM, CatBoost: extensão moderna (ensembles/boosting) sobre representação semântica
+- MLP: contraparte de classificador neural isolado sobre embeddings (cf. Umer et al., 2019)
 
 ### Etapa 2 — Ajuste de hiperparâmetros (Seção 6.5 do notebook)
-RandomizedSearchCV (20 iterações × 5 folds internos) busca os melhores hiperparâmetros
-de LogReg, XGBoost e LightGBM antes da avaliação final. NB, SVM e RF são robustos com
-defaults e não entram na busca.
+`GridSearchCV` (5 folds internos) busca os melhores hiperparâmetros de todos os
+baselines ajustáveis (LogReg, SVM, NB, Decision Tree, RF, k-NN, XGBoost, LightGBM,
+CatBoost, MLP) antes da avaliação final, com SMOTE dentro de cada fold do search.
 
 ### Etapa 3 — Comparação estatística pós-experimento (Seção 8 do notebook)
 **Teste de Friedman** (não-paramétrico, multi-modelo, seguindo Demšar 2006):
 - H₀: todos os modelos têm desempenho equivalente
 - Se p < 0.05: **Nemenyi pós-hoc** compara todos os pares
 
-Os resultados do Nemenyi informam:
-- Quais modelos são estatisticamente equivalentes entre si
-- Se modelos redundantes existem (baixa diversidade → candidatos a exclusão do stacking)
-- Justificativa documentada para a composição final do stacking
+### Etapa 4 — Seleção dinâmica de base-learners (Seção 8.1 do notebook)
+Uma célula de decisão **deriva automaticamente** a composição dos ensembles a partir
+do Nemenyi (não fixa modelos a priori):
+- percorre os modelos por rank médio crescente (melhor primeiro);
+- **exclui** um modelo se ele for estatisticamente equivalente (Nemenyi p > 0,05) a um
+  modelo já selecionado, de melhor rank e **mesma representação** (TF-IDF/Embeddings) —
+  descartando redundância da mesma família e preservando diversidade de representação;
+- se o Friedman não for significativo, recorre ao *fallback* top-N por rank médio.
 
-> **Nota de pendência:** a célula de documentação da decisão (qual modelo foi incluído
-> no stacking com base nos resultados Nemenyi, e por quê) ainda está pendente.
-> Ver seção [O que ainda falta implementar](#o-que-ainda-falta-implementar).
+A lista selecionada (que pode diferir entre Spark e CIRCL) alimenta **tanto o Stacking
+quanto o Voto Ponderado**, garantindo comparação justa sobre base idêntica. Isso
+documenta explicitamente a *especificação do processo de seleção de modelos*.
 
 ---
 
@@ -306,7 +338,7 @@ Projeto/
 │   ├── emb_spark_balanced.npy          # Cache de embeddings Spark (gerado na 1ª execução)
 │   └── emb_circl_balanced.npy          # Cache de embeddings CIRCL (gerado na 1ª execução)
 ├── notebooks/
-│   └── projeto_hibrido.ipynb           # Notebook principal (12 seções)
+│   └── projeto_hibrido.ipynb           # Notebook principal (Seções 0–12, c/ 8.0/8.1/9.1)
 ├── resultados/                          # Gerado automaticamente ao executar
 │   ├── eda_overview.png
 │   ├── preproc_truncamento.png
@@ -338,12 +370,15 @@ Projeto/
 | 4. Balanceamento | Undersampling real-first + visualização antes/depois |
 | 5. Embeddings | Qwen3-0.6B com cache em disco + PCA 2D para inspeção |
 | 6. Framework | Validação cruzada 10-fold, função `compute_metrics`, todas as métricas |
-| 6.5. Hiperparâmetros | RandomizedSearchCV para LogReg, XGBoost e LightGBM |
-| 7. Baselines | 6 modelos base com SMOTE dentro do fold |
+| 6.5. Hiperparâmetros | GridSearchCV (5 folds) para os 10 baselines ajustáveis |
+| 7. Baselines | 10 modelos base com SMOTE dentro do fold |
 | 8. Seleção | Friedman + Nemenyi pós-hoc + tabela de ranks |
-| 9. Stacking | Sistema híbrido com OOF aninhado (nested CV 10×5) |
-| 10. Resultados | Tabela consolidada + matrizes de confusão + gráfico de barras |
-| 11. Wilcoxon | Comparação final estacking vs melhor baseline, fold-a-fold |
+| 8.0. Registry | Factory compartilhado de base-learners (Stacking + Voto) |
+| 8.1. Decisão | Seleção dinâmica dos base-learners a partir do Nemenyi |
+| 9. Stacking | Meta-learning híbrido com OOF aninhado (nested CV 10×5) |
+| 9.1. Voto Ponderado | Fusão por voto suave ponderado (mesmos base-learners) |
+| 10. Resultados | Tabela consolidada + matrizes de confusão (3 painéis) + barras |
+| 11. Wilcoxon | Stacking vs baseline, Voto vs baseline e Stacking vs Voto, fold-a-fold |
 | 12. Conclusão | Decisões justificadas, limitações, próximos passos |
 
 ---
@@ -357,6 +392,7 @@ Projeto/
 | `imbalanced-learn` | 0.12 | SMOTE e `ImbPipeline` (SMOTE dentro do fold) |
 | `xgboost` | 2.0 | Baseline XGBoost — cumpre requisito não-sklearn |
 | `lightgbm` | 4.0 | Baseline LightGBM — cumpre requisito não-sklearn |
+| `catboost` | 1.2 | Baseline CatBoost — cumpre requisito não-sklearn |
 | `scikit-posthocs` | 0.9 | Teste de Nemenyi pós-hoc (Friedman) |
 | `statsmodels` | 0.14 | Dependência interna do scikit-posthocs |
 | `torch` | 2.0 | Detecção de GPU (CUDA) e backend dos embeddings |
@@ -422,32 +458,39 @@ Abra `notebooks/projeto_hibrido.ipynb` e execute em ordem (**Kernel → Restart 
 |---|---|---|
 | Desenvolver um sistema híbrido | ✅ | Stacking TF-IDF + Embeddings (Seção 9) |
 | Verificar literatura e propor alteração | ⚠️ Parcial | Tabela no título; falta seção dedicada no notebook |
-| Experimentos comparativos (proposta vs baselines) | ✅ | 6 baselines + stacking, Seções 7–10 |
-| Não usar apenas métodos sklearn | ✅ | XGBoost, LightGBM, SentenceTransformer |
+| Experimentos comparativos (proposta vs baselines) | ✅ | 10 baselines + Stacking + Voto Ponderado, Seções 7–10 |
+| Não usar apenas métodos sklearn | ✅ | XGBoost, LightGBM, CatBoost, SentenceTransformer |
 | Testes de hipótese obrigatórios | ✅ | Friedman + Nemenyi (Seção 8) + Wilcoxon (Seção 11) |
 | Mais de uma base de dados | ✅ | Apache Spark + CIRCL CVE |
 | Tabela de métricas | ✅ | Seção 10: 9 métricas, salvo em CSV |
-| Especificação do processo de seleção | ⚠️ Parcial | Nemenyi existe; falta célula de decisão documentada |
+| Especificação do processo de seleção | ✅ | Nemenyi + célula de decisão dinâmica (Seção 8.1) |
 
 ---
 
 ## O que ainda falta implementar
 
-### Prioridade Alta (necessário para requisitos do trabalho)
+### ✅ Concluído nesta rodada
 
-#### 1. Célula de decisão pós-Nemenyi (Seção 8)
+#### ~~1. Célula de decisão pós-Nemenyi (Seção 8)~~ — **FEITO**
 
-**O que falta:** após o heatmap do Nemenyi, adicionar uma célula markdown que
-documente explicitamente a decisão de composição do stacking com base nos resultados:
+Implementado na **Seção 8.1** do notebook: a função `seleciona_base_learners(rank_df,
+p_nem, ...)` deriva dinamicamente o subconjunto de base-learners dos ensembles a partir
+do Nemenyi (mantém diversidade de representação, descarta redundância da mesma família;
+*fallback* top-N se o Friedman não for significativo). Acompanhada de célula markdown
+que descreve o método. Conecta explicitamente Nemenyi → composição dos ensembles,
+atendendo ao requisito *"especificação do processo de seleção de modelos"*.
 
-> *"Os testes revelaram que X e Y são estatisticamente equivalentes (p > 0.05) enquanto
-> Z é significativamente distinto (p < 0.05). Para maximizar diversidade no ensemble,
-> selecionamos A, B, C e D como classificadores base do stacking, pois cobrem os dois
-> grupos de feature representation (TF-IDF e Embeddings) e apresentam complementaridade
-> estatística confirmada pelo Nemenyi."*
+#### ~~3. Baseline de Fusão (Voto Suave Ponderado)~~ — **FEITO**
 
-Sem essa célula, o requisito **"especificação do processo de seleção de modelos"**
-fica implícito — o avaliador pode não perceber a conexão entre o Nemenyi e o stacking.
+Implementado na **Seção 9.1**: `run_weighted_voting(...)` combina os **mesmos**
+base-learners selecionados para o Stacking por voto suave ponderado, com pesos
+`wᵢ = F1ᵢ / Σ F1ⱼ` (F1-macro de validação interna). Avaliado nos 10 folds externos e
+comparado ao Stacking via Wilcoxon (Seção 11), fornecendo a comparação direta
+**Meta-learning × Fusão** sobre base idêntica.
+
+---
+
+### Prioridade Alta (ainda pendente)
 
 #### 2. Seção de revisão de literatura no notebook (antes da Seção 1)
 
@@ -459,26 +502,6 @@ explicite:
 
 Isso torna auditável o cumprimento do requisito **"verificar trabalhos da literatura
 e propor uma alteração"**.
-
----
-
-### Prioridade Média (melhoria de alinhamento com os slides do curso)
-
-#### 3. Baseline de Fusão (Voto Suave Ponderado)
-
-**Contexto:** a Aula 09n (Lorenzato) define três estratégias de ensemble:
-Métodos de Fusão · Métodos de Seleção · Meta-learning. O notebook implementa apenas
-Meta-learning (Stacking). Adicionar um **voto suave ponderado** como baseline de Fusão
-demonstra conhecimento das três estratégias e gera uma comparação direta
-Meta-learning vs Fusão — um argumento mais forte para a adoção do Stacking.
-
-**O que adicionar:** uma função `run_weighted_voting(df, emb, dataset_name)` que:
-- Treina os 4 modelos base (LogReg+TF-IDF, RF+Emb, XGBoost+Emb, LightGBM+Emb)
-- Usa o F1-macro de validação interna como peso: $w_i = \alpha_i / \sum \alpha_j$
-- Combina as probabilidades ponderadas para a decisão final
-- Avalia com o mesmo framework de 10 folds externos
-
-**Resultado esperado:** Stacking deve superar Fusão, justificando a escolha.
 
 ---
 
@@ -496,13 +519,40 @@ Tarefa administrativa — registrar o tema do projeto na planilha compartilhada 
 |---|---|---|
 | Embeddings Spark (~4k textos) | ~8 min | ~1 min |
 | Embeddings CIRCL (~4k textos) | ~8 min | ~1 min |
-| Busca de hiperparâmetros (2 datasets) | ~20 min | ~12 min |
-| Baselines (2 datasets, 10 folds) | ~15 min | ~10 min |
+| Busca de hiperparâmetros (10 baselines, 2 datasets) | ~35 min | ~18 min |
+| Baselines (10 modelos, 2 datasets, 10 folds) | ~25 min | ~15 min |
 | Stacking (2 datasets, nested 10×5 CV) | ~60 min | ~30 min |
-| **Total (primeira execução)** | **~110 min** | **~55 min** |
+| Voto Ponderado (2 datasets, 10 folds) | ~15 min | ~8 min |
+| **Total (primeira execução)** | **~160 min** | **~80 min** |
 
 > Embeddings são cacheados em `data/*.npy` — nas execuções seguintes, apenas os modelos
-> são re-treinados.
+> são re-treinados. Tempos com 10 baselines e os dois ensembles são maiores que a versão
+> anterior (6 baselines, só Stacking).
+
+---
+
+## Referências
+
+- **Lamkanfi, A., Demeyer, S., Giger, E., Goethals, B. (2010).** *Predicting the
+  Severity of a Reported Bug.* MSR 2010. — referência central; baselines NB, SVM,
+  Decision Tree e k-NN sobre bag-of-words.
+- **Breiman, L. (2001).** *Random Forests.* Machine Learning, 45(1). — Random Forest.
+- **Chen, T., Guestrin, C. (2016).** *XGBoost: A Scalable Tree Boosting System.* KDD 2016.
+- **Ke, G. et al. (2017).** *LightGBM: A Highly Efficient Gradient Boosting Decision
+  Tree.* NeurIPS 2017.
+- **Prokhorenkova, L., Gusev, G., Vorobev, A., Dorogush, A. V., Gulin, A. (2018).**
+  *CatBoost: unbiased boosting with categorical features.* NeurIPS 2018.
+- **Umer, Q., Liu, H., Sultan, Y. (2019).** *Emotion Based Automated Priority
+  Prediction for Bug Reports.* IEEE Access / Sensors. — híbrido CNN+RF; motiva a
+  contraparte neural (MLP sobre embeddings).
+- **Spanos, G., Angelis, L. (2018).** *A multi-target approach to estimate software
+  vulnerability characteristics and severity scores.* Journal of Systems and Software.
+- **Wolpert, D. H. (1992).** *Stacked Generalization.* Neural Networks, 5(2). —
+  formalização do Stacking (meta-learning).
+- **Demšar, J. (2006).** *Statistical Comparisons of Classifiers over Multiple Data
+  Sets.* JMLR 7. — Friedman + Nemenyi + Wilcoxon como protocolo de comparação.
+- **Lorenzato (2024).** *Sistemas Inteligentes Híbridos / Métodos de Ensemble*,
+  RecPad — Aula 09 (UPE). — taxonomia Fusão · Seleção · Meta-learning.
 
 ---
 
