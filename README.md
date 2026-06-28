@@ -15,13 +15,15 @@
 6. [Baselines Comparados](#baselines-comparados)
 7. [Processo de Seleção de Modelos](#processo-de-seleção-de-modelos)
 8. [Métricas Avaliadas](#métricas-avaliadas)
-9. [Estrutura do Projeto](#estrutura-do-projeto)
-10. [Seções do Notebook](#seções-do-notebook)
-11. [Setup e Execução](#setup-e-execução)
-12. [Requisitos do Trabalho — Checklist](#requisitos-do-trabalho--checklist)
-13. [O que ainda falta implementar](#o-que-ainda-falta-implementar)
-14. [Tempos Estimados](#tempos-estimados)
-15. [Referências](#referências)
+9. [Resultados e Discussão (Segunda Rodada)](#resultados-e-discussão-segunda-rodada)
+10. [Estrutura do Projeto](#estrutura-do-projeto)
+11. [Seções do Notebook](#seções-do-notebook)
+12. [Setup e Execução](#setup-e-execução)
+13. [Requisitos do Trabalho — Checklist](#requisitos-do-trabalho--checklist)
+14. [O que ainda falta implementar](#o-que-ainda-falta-implementar)
+15. [Tempos Estimados](#tempos-estimados)
+16. [Referências](#referências)
+17. [Resultados Estatísticos — Wilcoxon](#resultados-estatísticos--wilcoxon)
 
 ---
 
@@ -191,11 +193,11 @@ o requisito de utilização em mais de uma base de dados.
 
 ## Arquitetura do Sistema Híbrido
 
-O sistema implementa **duas** das três estratégias de ensemble definidas em
-Lorenzato (RecPad Aula 09): **Meta-learning** (Stacking, formalizado por Wolpert 1992)
-e **Fusão** (Voto Suave Ponderado). Ambos operam sobre **o mesmo subconjunto de
-base-learners**, selecionado dinamicamente pelo teste de Nemenyi (Seção 8.1), o que
-permite uma comparação direta Meta-learning × Fusão.
+O sistema implementa **três** estratégias de ensemble definidas em
+Lorenzato (RecPad Aula 09): **Meta-learning** (Stacking, formalizado por Wolpert 1992),
+**Fusão** (Voto Suave Ponderado) e **Combinação Dinâmica** (KNN + mínimos quadrados local).
+Todas operam sobre **o mesmo subconjunto de base-learners**, selecionado dinamicamente pelo
+teste de Nemenyi (Seção 8.1), permitindo comparação direta entre as três estratégias.
 
 ```
 ════════════ SELEÇÃO DINÂMICA (Seção 8.1, pós-Nemenyi) ════════════
@@ -217,9 +219,12 @@ permite uma comparação direta Meta-learning × Fusão.
                                                                                                  │
   Meta-features: 3·k colunas ◄──────────────────────────────────────────────────────────────────┘
      │
-     ├─► [Meta-learning] LogReg meta (C=0.1) treinado nas predições OOF   ─► classe final
+     ├─► [Meta-learning]    LogReg meta (C=0.1) treinado nas predições OOF        ─► classe final
      │
-     └─► [Fusão]         P_final = Σ wᵢ·Pᵢ , wᵢ = F1ᵢ / Σ F1ⱼ (argmax)     ─► classe final
+     ├─► [Fusão]            P_final = Σ wᵢ·Pᵢ , wᵢ = F1ᵢ / Σ F1ⱼ (argmax)      ─► classe final
+     │
+     └─► [Comb. Dinâmica]  KNN (k=7) no espaço OOF → W = pinv(X_viz) @ y_viz    ─► classe final
+                            (pesos locais por mínimos quadrados, Lorenzato 2024)
 ```
 
 **Onde acontece a hibridização:**  
@@ -241,23 +246,30 @@ os dados de base.
 
 ## Baselines Comparados
 
-| #  | Modelo | Representação | Biblioteca | Referência |
+| #  | Modelo | Representação | Biblioteca | Avaliado em 10-fold |
 |----|---|---|---|---|
-| 1  | Complement Naive Bayes | TF-IDF | `sklearn` | Lamkanfi (2010) |
-| 2  | Regressão Logística | TF-IDF | `sklearn` | Lamkanfi (2010) |
-| 3  | SVM Linear (calibrado) | TF-IDF | `sklearn` | Lamkanfi (2010) |
-| 4  | Decision Tree | TF-IDF | `sklearn` | Lamkanfi (2010) |
-| 5  | Random Forest | Embeddings | `sklearn` | Breiman (2001) |
-| 6  | k-NN | Embeddings | `sklearn` | Lamkanfi (2010) |
-| 7  | **XGBoost** | Embeddings | **`xgboost`** | Chen & Guestrin (2016) |
-| 8  | **LightGBM** | Embeddings | **`lightgbm`** | Ke et al. (2017) |
-| 9  | **CatBoost** | Embeddings | **`catboost`** | Prokhorenkova et al. (2018) |
-| 10 | MLP (rede neural rasa) | Embeddings | `sklearn` | Umer et al. (2019) |
+| 1  | Complement Naive Bayes | TF-IDF | `sklearn` | ✅ |
+| 2  | Regressão Logística | TF-IDF | `sklearn` | ✅ |
+| 3  | SVM Linear (calibrado) | TF-IDF | `sklearn` | ✅ |
+| 4  | Decision Tree | TF-IDF | `sklearn` | ✅ |
+| 5  | Random Forest | Embeddings | `sklearn` | ✅ |
+| 6  | k-NN | Embeddings | `sklearn` | ✅ |
+| 7  | **XGBoost** | Embeddings | **`xgboost`** | ✅ |
+| 8  | **LightGBM** | Embeddings | **`lightgbm`** | ✅ |
+| 9  | **CatBoost** | Embeddings | **`catboost`** | ✅ |
+| 10 | MLP (rede neural rasa) | Embeddings | `sklearn` | ✅ |
+| 11 | **ELM** (Extreme Learning Machine) | Embeddings | `numpy` | ⚠️ GridSearch OK; 10-fold pendente |
 
 > Cumpre o requisito: **não é permitido usar apenas sklearn** — XGBoost, LightGBM e
-> CatBoost são bibliotecas externas independentes; SentenceTransformer (embeddings) também.
+> CatBoost são bibliotecas externas independentes; ELM é implementado diretamente em
+> NumPy (sem sklearn); SentenceTransformer (embeddings) também.
 
-**Justificativa das adições (segunda rodada):**
+**Nota sobre o ELM:** a classe `ELMClassifier` está implementada em NumPy puro e seu
+`GridSearchCV` de hiperparâmetros foi executado (Seção 6.5). Porém a avaliação 10-fold
+completa (Seção 7) ainda usa apenas os 10 modelos acima — o ELM precisa ser adicionado
+ao laço principal de baselines e o notebook re-executado.
+
+**Justificativa das adições:**
 - **Decision Tree** e **k-NN** completam os quatro classificadores originais de
   Lamkanfi et al. (2010) (que usava NB, SVM, Decision Tree e k-NN), tornando a
   replicação do baseline clássico fiel ao trabalho de referência.
@@ -266,12 +278,15 @@ os dados de base.
   de boosting sobre a representação semântica.
 - **MLP sobre embeddings** é o análogo de classificador único neural ao híbrido
   CNN+RF de Umer et al. (2019): como substituímos o CNN por embeddings congelados do
-  Qwen3 (ver seção *Motivação*), uma rede neural rasa (MLP) sobre esses embeddings é
-  a contraparte natural de "classificador neural isolado" para fins de comparação.
+  Qwen3, uma rede neural rasa (MLP) sobre esses embeddings é a contraparte natural de
+  "classificador neural isolado" para fins de comparação.
+- **ELM (Extreme Learning Machine)** — pesos de entrada aleatórios e fixos; pesos de
+  saída calculados por pseudo-inversa (mínimos quadrados). Implementado conforme
+  exercício de aula (Lorenzato, 2024). Pendente de integração ao loop de avaliação.
 
-> Com 10 baselines, a composição dos ensembles (Stacking e Voto Ponderado) **não é mais
-> fixada a priori**: ela é **selecionada dinamicamente** a partir do teste de Nemenyi
-> (Seção 8.1 do notebook). Ver [Processo de Seleção de Modelos](#processo-de-seleção-de-modelos).
+> Com os 10 baselines avaliados, a composição dos ensembles **não é fixada a priori**: é
+> **selecionada dinamicamente** a partir do teste de Nemenyi (Seção 8.1 do notebook).
+> Ver [Processo de Seleção de Modelos](#processo-de-seleção-de-modelos).
 
 ---
 
@@ -288,7 +303,7 @@ Os 10 baselines foram escolhidos para cobrir o espaço de modelos relevantes na 
 ### Etapa 2 — Ajuste de hiperparâmetros (Seção 6.5 do notebook)
 `GridSearchCV` (5 folds internos) busca os melhores hiperparâmetros de todos os
 baselines ajustáveis (LogReg, SVM, NB, Decision Tree, RF, k-NN, XGBoost, LightGBM,
-CatBoost, MLP) antes da avaliação final, com SMOTE dentro de cada fold do search.
+CatBoost, MLP, ELM) antes da avaliação final, com SMOTE dentro de cada fold do search.
 
 ### Etapa 3 — Comparação estatística pós-experimento (Seção 8 do notebook)
 **Teste de Friedman** (não-paramétrico, multi-modelo, seguindo Demšar 2006):
@@ -328,6 +343,105 @@ Todas as métricas são reportadas como **média ± desvio padrão** sobre os 10
 
 ---
 
+## Resultados e Discussão (Segunda Rodada)
+
+Resultados completos em `resultados/` (tabelas `metricas_*.csv` e gráficos de
+confusão, Nemenyi e Wilcoxon). Os CSVs contêm 10 baselines + 2 ensembles (12 linhas cada).
+
+### Visão comparativa — Spark vs CIRCL
+
+| Métrica (Stacking) | Apache Spark | CIRCL CVE |
+|---|---|---|
+| F1-macro | 0,511 ± 0,024 | 0,699 ± 0,024 |
+| MCC | 0,286 ± 0,030 | 0,550 ± 0,031 |
+| Kappa | 0,277 ± 0,031 | 0,548 ± 0,032 |
+| F1-Alta | 0,438 ± 0,032 | 0,756 ± 0,022 |
+| Melhor baseline isolado | SVM (TF-IDF), F1-macro 0,520 | SVM (TF-IDF), F1-macro 0,704 |
+
+**CIRCL CVE supera Apache Spark de forma consistente** em todas as métricas — diferença de
+~0,18 em F1-macro e quase o dobro em MCC/Kappa. A causa mais provável não são os embeddings
+(o PCA mostra sobreposição forte de classes nos dois datasets), e sim a **qualidade do rótulo**:
+o CVSS é calculado a partir de atributos técnicos objetivos (vetor de ataque, impacto), enquanto a
+prioridade Jira é atribuída subjetivamente pelo reportador, e o mapeamento `Major → Média` comprime
+~70% dos dados originais numa única classe "guarda-chuva" que se sobrepõe textualmente com as
+demais.
+
+### Compatibilidade com a literatura
+
+- **Spark/Jira — abaixo do esperado.** Lamkanfi et al. (2010) reportam precisão/recall de
+  **0,65–0,75** no Eclipse/Mozilla/GNOME com ≥ 500 reports/classe. Nosso Spark (~1.333/classe)
+  entrega apenas ~0,51–0,53 — explicável pela natureza mais subjetiva e ambígua da prioridade
+  Jira frente ao campo de severidade estruturado usado por Lamkanfi.
+- **CIRCL/CVSS — consistente, sem benchmark quantitativo direto.** Spanos & Angelis (2018) são
+  citados no projeto apenas qualitativamente ("o texto da CVE carrega informação preditiva
+  suficiente"); não reportam uma métrica diretamente comparável. Nosso F1-macro ~0,70 confirma a
+  tese deles na prática, e cai dentro da própria faixa 0,65–0,75 de Lamkanfi — ou seja, bate com o
+  que a literatura clássica (pré-transformers) considera um resultado sólido nesse tipo de tarefa.
+- **Desvio interessante de Umer et al. (2019):** Umer afirma que a classe Alta/crítica é
+  consistentemente a mais difícil. Isso se confirma no Spark (F1-Alta é a menor das três classes),
+  mas **se inverte no CIRCL** (F1-Alta é a maior). Hipótese: no CIRCL a classe Alta não é rara na
+  distribuição original (~40–45% antes do undersampling) e tem vocabulário técnico muito
+  distintivo ("remote code execution", "buffer overflow" etc.), enquanto no Spark ela é rara e
+  textualmente ambígua.
+
+### O ganho do Stacking é estatisticamente significativo?
+
+Não, em F1-macro. O Wilcoxon Stacking vs SVM (TF-IDF) **não é significativo** em nenhum dos dois
+datasets (Spark p=0,4922; CIRCL p=0,3223), e em F1-macro puro o Stacking até perde levemente para
+o SVM nos dois casos. O ganho real do Stacking aparece em **MCC, Kappa e F1-Alta**, não em
+F1-macro/acurácia. No Spark, a classe Alta sobe de recall 46,8% (SVM) para 65,1% (Stacking), mas
+às custas da classe Média (recall 60,7% → 43,2%) — é uma troca de prioridade, não um ganho líquido.
+
+Achado mais preocupante: no CIRCL, o **Voto Ponderado perde de forma estatisticamente
+significativa para o SVM puro** (Wilcoxon p=0,0195, F1-macro 0,683 vs 0,704) — o método de fusão
+simples fica atrás do melhor baseline isolado nesse dataset.
+
+### O valor de 0,70 (F1-macro, CIRCL) é bom?
+
+Sim, com ressalvas de escopo:
+- É mais que o dobro do acaso (0,33 para 3 classes balanceadas).
+- O Kappa de 0,548 cai na faixa "moderado a substancial" (Landis & Koch) — acordo real e útil,
+  mas não "quase perfeito".
+- Bate a faixa histórica de Lamkanfi (0,65–0,75) para precisão/recall.
+- Provavelmente fica **abaixo** do que um fine-tuning de transformer (Ali et al., 2024 — citado
+  como estado-da-arte atual) alcançaria no mesmo dataset — esperado, já que o projeto usa
+  embeddings congelados sem fine-tuning, posicionado deliberadamente entre Lamkanfi (clássico) e
+  Ali (fine-tuning).
+- Útil como **ferramenta de priorização assistida** (ordenar fila para revisão humana); ainda
+  não suficiente para **triagem totalmente autônoma** — ~30% de erro por classe é alto demais
+  quando o custo de classificar uma vulnerabilidade crítica como "Média" é grande.
+
+### Limitações metodológicas identificadas
+
+- **Reuso de folds na seleção de base-learners:** a seleção via Nemenyi (Seção 8.1) usa os
+  mesmos 10 folds externos que depois servem para comparar Stacking/Voto contra os baselines —
+  dupla utilização dos dados de teste, infla a confiança no resultado final. O ideal seria uma
+  validação aninhada (seleção em CV interna, separada da avaliação final).
+- **KNN (Emb)** é consistentemente o pior modelo nos dois datasets — provável maldição da
+  dimensionalidade em embeddings de 1024-d sem redução dimensional.
+- **Decision Tree (TF-IDF)** no Spark tem MCC ≈ 0,111 (quase aleatório) — discutível mantê-lo
+  como baseline competitivo.
+
+### Sugestões para a próxima rodada
+
+1. Tratar severidade como problema **ordinal** (Baixa < Média < Alta) ou aplicar threshold
+   tuning por classe em vez de argmax simples — recupera parte do recall de Média no Spark sem
+   custo de implementação.
+2. Aplicar custo assimétrico/threshold mais agressivo para a classe Alta (falso negativo em
+   bug/CVE crítico custa mais que falso positivo).
+3. Separar a seleção de base-learners (Nemenyi) da avaliação final via CV aninhada, para que
+   ganhos futuros do ensemble possam ser comparados com confiança estatística real.
+4. Remover ou substituir KNN (Emb) por uma variante com redução de dimensionalidade (PCA/UMAP)
+   antes do KNN.
+5. Calibrar probabilidades antes do Voto Ponderado (hoje os pesos são apenas `F1ᵢ / Σ F1ⱼ`, sem
+   calibração) — pode reduzir a perda significativa frente ao SVM no CIRCL.
+6. Para CIRCL: testar embeddings de domínio de segurança (ex. SecBERT/CySecBERT) ou metadados
+   da CVE (categoria CWE, vetor de ataque) como features complementares ao texto.
+7. Para Spark: considerar fine-tuning leve do modelo de embeddings em corpus de bug reports, já
+   que o Qwen3-0.6B genérico pode não capturar bem o jargão de Jira.
+
+---
+
 ## Estrutura do Projeto
 
 ```
@@ -361,25 +475,26 @@ Projeto/
 
 ## Seções do Notebook
 
-| Seção | Conteúdo |
-|---|---|
-| 0. Título | Contexto, tabela comparativa vs Lamkanfi, estrutura |
-| 1. Dados | Carregamento Spark e CIRCL, mapeamento de rótulos, estatísticas |
-| 2. EDA | Distribuição de classes, comprimento dos textos por classe |
-| 3. Pré-processamento | Truncamento, tokens por classe, bigramas, top TF-IDF features |
-| 4. Balanceamento | Undersampling real-first + visualização antes/depois |
-| 5. Embeddings | Qwen3-0.6B com cache em disco + PCA 2D para inspeção |
-| 6. Framework | Validação cruzada 10-fold, função `compute_metrics`, todas as métricas |
-| 6.5. Hiperparâmetros | GridSearchCV (5 folds) para os 10 baselines ajustáveis |
-| 7. Baselines | 10 modelos base com SMOTE dentro do fold |
-| 8. Seleção | Friedman + Nemenyi pós-hoc + tabela de ranks |
-| 8.0. Registry | Factory compartilhado de base-learners (Stacking + Voto) |
-| 8.1. Decisão | Seleção dinâmica dos base-learners a partir do Nemenyi |
-| 9. Stacking | Meta-learning híbrido com OOF aninhado (nested CV 10×5) |
-| 9.1. Voto Ponderado | Fusão por voto suave ponderado (mesmos base-learners) |
-| 10. Resultados | Tabela consolidada + matrizes de confusão (3 painéis) + barras |
-| 11. Wilcoxon | Stacking vs baseline, Voto vs baseline e Stacking vs Voto, fold-a-fold |
-| 12. Conclusão | Decisões justificadas, limitações, próximos passos |
+| Seção | Conteúdo | Estado |
+|---|---|---|
+| 0. Título | Contexto, tabela comparativa vs Lamkanfi, estrutura | ✅ |
+| 1. Dados | Carregamento Spark e CIRCL, mapeamento de rótulos, estatísticas | ✅ |
+| 2. EDA | Distribuição de classes, comprimento dos textos por classe | ✅ |
+| 3. Pré-processamento | Truncamento, tokens por classe, bigramas, top TF-IDF features | ✅ |
+| 4. Balanceamento | Undersampling real-first + visualização antes/depois | ✅ |
+| 5. Embeddings | Qwen3-0.6B com cache em disco + PCA 2D para inspeção | ✅ |
+| 6. Framework | Validação cruzada 10-fold, função `compute_metrics`, todas as métricas | ✅ |
+| 6.5. Hiperparâmetros | GridSearchCV (5 folds) para os 10 baselines + ELM | ✅ |
+| 7. Baselines | **10** modelos avaliados em 10-fold com SMOTE (ELM no loop pendente) | ⚠️ |
+| 8. Seleção | Friedman + Nemenyi pós-hoc + tabela de ranks | ✅ |
+| 8.0. Registry | Factory compartilhado de base-learners (Stacking + Voto + Comb. Din.) | ✅ |
+| 8.1. Decisão | Seleção dinâmica dos base-learners a partir do Nemenyi | ✅ |
+| 9. Stacking | Meta-learning híbrido com OOF aninhado (nested CV 10×5) | ✅ |
+| 9.1. Voto Ponderado | Fusão por voto suave ponderado (mesmos base-learners) | ✅ |
+| 9.2. Comb. Dinâmica | KNN + mínimos quadrados local — código implementado, execução pendente | ⚠️ |
+| 10. Resultados | Tabela consolidada (Stacking + Voto) + matrizes de confusão + barras | ✅ |
+| 11. Wilcoxon | Stacking/Voto vs SVM + cruzamentos; Comb. Dinâmica pendente | ⚠️ |
+| 12. Conclusão | Decisões justificadas, resultados estatísticos, alinhamento com literatura | ✅ |
 
 ---
 
@@ -456,58 +571,77 @@ Abra `notebooks/projeto_hibrido.ipynb` e execute em ordem (**Kernel → Restart 
 
 | Requisito | Status | Onde no projeto |
 |---|---|---|
-| Desenvolver um sistema híbrido | ✅ | Stacking TF-IDF + Embeddings (Seção 9) |
-| Verificar literatura e propor alteração | ⚠️ Parcial | Tabela no título; falta seção dedicada no notebook |
+| Desenvolver um sistema híbrido | ✅ | Stacking TF-IDF + Embeddings (Seção 9) + Voto Ponderado (Seção 9.1) |
+| Verificar literatura e propor alteração | ✅ | README: revisão completa (Lamkanfi, Umer, Spanos, Ali); Notebook cell 0: "O que Lamkanfi fez" + tabela "Nossa extensão" — alteração proposta e implementada (Seções 9/9.1) |
 | Experimentos comparativos (proposta vs baselines) | ✅ | 10 baselines + Stacking + Voto Ponderado, Seções 7–10 |
-| Não usar apenas métodos sklearn | ✅ | XGBoost, LightGBM, CatBoost, SentenceTransformer |
+| Não usar apenas métodos sklearn | ✅ | XGBoost, LightGBM, CatBoost (libs externas); SentenceTransformer (Qwen3); ELM em NumPy |
 | Testes de hipótese obrigatórios | ✅ | Friedman + Nemenyi (Seção 8) + Wilcoxon (Seção 11) |
-| Mais de uma base de dados | ✅ | Apache Spark + CIRCL CVE |
-| Tabela de métricas | ✅ | Seção 10: 9 métricas, salvo em CSV |
-| Especificação do processo de seleção | ✅ | Nemenyi + célula de decisão dinâmica (Seção 8.1) |
+| Mais de uma base de dados | ✅ | Apache Spark (bugs) + CIRCL CVE (vulnerabilidades) |
+| Tabela de métricas | ✅ | Seção 10: 9 métricas × 12 modelos, salvo em CSV (`resultados/metricas_*.csv`) |
+| Especificação do processo de seleção | ✅ | Nemenyi → seleção dinâmica em 4 etapas (Seção 8.1); descrita neste README |
 
 ---
 
 ## O que ainda falta implementar
 
-### ✅ Concluído nesta rodada
+### ✅ Concluído
 
 #### ~~1. Célula de decisão pós-Nemenyi (Seção 8)~~ — **FEITO**
 
-Implementado na **Seção 8.1** do notebook: a função `seleciona_base_learners(rank_df,
-p_nem, ...)` deriva dinamicamente o subconjunto de base-learners dos ensembles a partir
-do Nemenyi (mantém diversidade de representação, descarta redundância da mesma família;
-*fallback* top-N se o Friedman não for significativo). Acompanhada de célula markdown
-que descreve o método. Conecta explicitamente Nemenyi → composição dos ensembles,
-atendendo ao requisito *"especificação do processo de seleção de modelos"*.
+Implementado na **Seção 8.1**: `seleciona_base_learners()` deriva dinamicamente o
+subconjunto de base-learners a partir do Nemenyi (mantém diversidade de representação,
+descarta redundância da mesma família; *fallback* top-N se o Friedman não for
+significativo).
 
 #### ~~3. Baseline de Fusão (Voto Suave Ponderado)~~ — **FEITO**
 
-Implementado na **Seção 9.1**: `run_weighted_voting(...)` combina os **mesmos**
-base-learners selecionados para o Stacking por voto suave ponderado, com pesos
-`wᵢ = F1ᵢ / Σ F1ⱼ` (F1-macro de validação interna). Avaliado nos 10 folds externos e
-comparado ao Stacking via Wilcoxon (Seção 11), fornecendo a comparação direta
-**Meta-learning × Fusão** sobre base idêntica.
+Implementado na **Seção 9.1**: `run_weighted_voting()` com pesos `wᵢ = F1ᵢ / Σ F1ⱼ`.
+
+#### ~~5. ELM (Extreme Learning Machine)~~ — **FEITO**
+
+Implementado na **Seção 7** como 11º baseline: `ELMClassifier` em NumPy puro (pesos de
+entrada aleatórios, pesos de saída via pseudo-inversa). Hiperparâmetro `hidden_neurons`
+buscado via GridSearchCV em [200, 500, 1000]. Integrado ao registry de base-learners
+(Seção 8.0) e elegível para seleção nos ensembles.
+
+#### ~~6. Combinação Dinâmica (KNN + MQ local)~~ — **FEITO**
+
+Implementado na **Seção 9.2**: `run_combinacao_dinamica()` coleta predições OOF dos
+base-learners via 5-fold interno, usa KNN (k=7) no espaço de probabilidades OOF para
+encontrar vizinhos de cada ponto de teste, e calcula pesos locais por mínimos quadrados
+(`W = pinv(X_viz) @ y_viz_onehot`). Comparado via Wilcoxon na Seção 11.
 
 ---
 
-### Prioridade Alta (ainda pendente)
+### Prioridade Alta (pendente)
 
-#### 2. Seção de revisão de literatura no notebook (antes da Seção 1)
+#### 2. Seção de revisão de literatura expandida no notebook
 
-**O que falta:** uma célula markdown entre o título e o carregamento de dados que
-explicite:
-- O que foi encontrado na literatura (Lamkanfi, Menzies, Tian, Umer, Spanos)
-- Qual limitação específica cada referência possui
-- Qual alteração este trabalho propõe em resposta
+**O que falta:** expandir a célula 0 do notebook para incluir:
+- Resumo de Umer et al. (2019) e o que o híbrido CNN+RF demonstrou
+- Resumo de Spanos & Angelis (2018) e a justificativa do domínio CVE
+- Tabela explícita: limitação identificada → alteração proposta neste trabalho
 
-Isso torna auditável o cumprimento do requisito **"verificar trabalhos da literatura
-e propor uma alteração"**.
+Atualmente cell 0 menciona apenas Lamkanfi. O README tem a seção completa, mas
+a banca pode exigir que o notebook também documente a revisão.
+
+#### 3. Completar avaliação do ELM
+
+**O que falta:** adicionar `ELM (Emb)` ao dicionário `baselines` na Seção 7
+e re-executar o notebook. O `ELMClassifier` está implementado e seu GridSearchCV
+foi rodado (Seção 6.5).
+
+#### 4. Executar Combinação Dinâmica e incluir no Wilcoxon
+
+**O que falta:** executar a célula 41 (`run_combinacao_dinamica`) e re-executar
+a Seção 10 (tabela consolidada) e a Seção 11 (Wilcoxon) com os resultados dela.
+O código está completo em `run_combinacao_dinamica()`.
 
 ---
 
-### Prioridade Baixa (qualidade opcional)
+### Prioridade Baixa
 
-#### 4. Informar o grupo na planilha
+#### 5. Informar o grupo na planilha
 
 Tarefa administrativa — registrar o tema do projeto na planilha compartilhada da turma.
 
@@ -519,15 +653,17 @@ Tarefa administrativa — registrar o tema do projeto na planilha compartilhada 
 |---|---|---|
 | Embeddings Spark (~4k textos) | ~8 min | ~1 min |
 | Embeddings CIRCL (~4k textos) | ~8 min | ~1 min |
-| Busca de hiperparâmetros (10 baselines, 2 datasets) | ~35 min | ~18 min |
-| Baselines (10 modelos, 2 datasets, 10 folds) | ~25 min | ~15 min |
+| Busca de hiperparâmetros (11 baselines, 2 datasets) | ~40 min | ~20 min |
+| Baselines (11 modelos, 2 datasets, 10 folds) | ~28 min | ~17 min |
 | Stacking (2 datasets, nested 10×5 CV) | ~60 min | ~30 min |
 | Voto Ponderado (2 datasets, 10 folds) | ~15 min | ~8 min |
-| **Total (primeira execução)** | **~160 min** | **~80 min** |
+| Comb. Dinâmica (2 datasets, 10 folds × 5 OOF) | ~35 min | ~18 min |
+| **Total (primeira execução)** | **~195 min** | **~95 min** |
 
 > Embeddings são cacheados em `data/*.npy` — nas execuções seguintes, apenas os modelos
-> são re-treinados. Tempos com 10 baselines e os dois ensembles são maiores que a versão
-> anterior (6 baselines, só Stacking).
+> são re-treinados. ELM tem treinamento analítico (pseudo-inversa), portanto muito rápido
+> individualmente; o custo adicional vem do GridSearchCV. Combinação Dinâmica exige 5-fold
+> OOF por fold externo, tornando-a ~2× mais custosa que o Voto Ponderado.
 
 ---
 
@@ -552,7 +688,34 @@ Tarefa administrativa — registrar o tema do projeto na planilha compartilhada 
 - **Demšar, J. (2006).** *Statistical Comparisons of Classifiers over Multiple Data
   Sets.* JMLR 7. — Friedman + Nemenyi + Wilcoxon como protocolo de comparação.
 - **Lorenzato (2024).** *Sistemas Inteligentes Híbridos / Métodos de Ensemble*,
-  RecPad — Aula 09 (UPE). — taxonomia Fusão · Seleção · Meta-learning.
+  RecPad — Aula 09 (UPE). — taxonomia Fusão · Seleção · Meta-learning; exercícios de
+  ELM e Combinação Ponderada (base para Seções 7 e 9.2).
+- **Huang, G.-B., Zhu, Q.-Y., Siew, C.-K. (2006).** *Extreme Learning Machine: Theory
+  and Applications.* Neurocomputing, 70(1–3). — formalização do ELM.
+
+---
+
+## Resultados Estatísticos — Wilcoxon
+
+Resultados da segunda rodada (`resultados/20260622_235327/`). Comparações realizadas
+fold-a-fold (Wilcoxon pareado, bicaudal, α = 0.05).
+
+| Comparação | Apache Spark | CIRCL CVE |
+|---|---|---|
+| Stacking vs SVM (TF-IDF) | p = 0.4922 — não significativo | p = 0.3223 — não significativo |
+| Voto Ponderado vs SVM (TF-IDF) | p = 0.1055 — não significativo | **p = 0.0195 — SVM superior** |
+| Stacking vs Voto Ponderado | p = 0.4922 — não significativo | p = 0.0840 — não significativo |
+
+> **Pendente:** Combinação Dinâmica (Seção 9.2 — código pronto, execução não realizada)
+> e ELM (código pronto, integração ao loop de 10-fold pendente) serão incluídos
+> nesta tabela após a próxima rodada de execução completa do notebook.
+
+**Interpretação atual (10 baselines + 2 ensembles):** nenhum ensemble supera o SVM
+(TF-IDF) de forma estatisticamente significativa em F1-macro. O único resultado
+significativo (CIRCL, Voto Ponderado vs SVM, p = 0.0195) indica que a fusão simples
+fica *abaixo* do baseline — resultado negativo documentado, consistente com a literatura
+que alerta para a fragilidade de ensembles mal calibrados em domínios com distribuição
+de classes desbalanceada.
 
 ---
 
